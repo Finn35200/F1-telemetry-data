@@ -145,14 +145,15 @@ try:
     for driver in tire_data['Driver'].unique():
         driver_data = tire_data[tire_data['Driver'] == driver]
         fig.add_trace(go.Scatter)
-            x=driver_data['TyreLife'], 
+            x=driver_data['TyreLife'],
             y=driver_data['LapTime'],
-            mode='markers+lines', 
+            mode='markers+lines',
             name=driver,
             marker=dict(
                 symbol=driver_data['Symbol'],
                 size=8,
                 line=dict(width=1, color='DarkSlateGrey')
+            )
         ))
     
     fig.update_layout(
@@ -185,13 +186,13 @@ try:
         
         fig_weather = go.Figure()
         fig_weather.add_trace(go.Scatter(
-            x=weather['Time'], 
+            x=weather['Time'],
             y=weather['AirTemp'],
             name='Air Temp',
             line=dict(color='red')
         ))
         fig_weather.add_trace(go.Scatter(
-            x=weather['Time'], 
+            x=weather['Time'],
             y=weather['TrackTemp'],
             name='Track Temp',
             line=dict(color='orange')

@@ -144,7 +144,7 @@ try:
     fig = go.Figure()
     for driver in tire_data['Driver'].unique():
         driver_data = tire_data[tire_data['Driver'] == driver]
-        fig.add_trace(go.Scatter)
+        fig.add_trace(go.Scatter(
             x=driver_data['TyreLife'],
             y=driver_data['LapTime'],
             mode='markers+lines',

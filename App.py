@@ -6,22 +6,39 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
+import os
 
-# Configure
-fastf1.Cache.enable_cache('cache')
+# ========== CACHE SETUP ==========
+try:
+    # Try to create cache directory if it doesn't exist
+    os.makedirs('cache', exist_ok=True)
+    fastf1.Cache.enable_cache('cache')
+except Exception as e:
+    st.warning(f"Cache setup failed: {e}. Continuing without cache...")
+
+# Configure Streamlit
 st.set_page_config(layout="wide")
-
-# Title
 st.title("F1 2025 Ultimate Race Analyzer")
 
-# Session selection
+# ========== SESSION SELECTION ==========
 year = 2025
 event = st.selectbox("Event", ["Australia", "Japan", "Monza"])
 session_type = st.selectbox("Session", ["Race", "Qualifying"])
 
-# Load session
-session = fastf1.get_session(year, event, session_type)
-session.load()
+# ========== DATA LOADING ==========
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_session_data(year, event, session_type):
+    try:
+        session = fastf1.get_session(year, event, session_type)
+        session.load()
+        return session
+    except Exception as e:
+        st.error(f"Failed to load session data: {e}")
+        return None
+
+session = load_session_data(year, event, session_type)
+if session is None:
+    st.stop()
 
 # Get all drivers
 drivers = session.drivers
@@ -30,91 +47,67 @@ driver2 = st.selectbox("Driver 2", [d for d in drivers if d != driver1])
 
 # ========== GHOST RACING SIMULATOR ==========
 def ghost_simulator(session, driver1, driver2):
-    # Get laps with tire data
-    lap1 = session.laps.pick_driver(driver1).pick_fastest()
-    lap2 = session.laps.pick_driver(driver2).pick_fastest()
-    
-    # Get telemetry
-    tel1 = lap1.get_telemetry().add_distance()
-    tel2 = lap2.get_telemetry().add_distance()
-    
-    # Create figure
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
-                       subplot_titles=(
-                           f"Speed Comparison | {driver1} ({lap1['Compound']}) vs {driver2} ({lap2['Compound']})",
-                           "Throttle/Brake",
-                           "Delta Time", 
-                           "Tire Age Comparison"))
-    
-    # Speed trace
-    fig.add_trace(go.Scatter(x=tel1['Distance'], y=tel1['Speed'], 
-                   name=f"{driver1} Speed", line=dict(color='red')), 1, 1)
-    fig.add_trace(go.Scatter(x=tel2['Distance'], y=tel2['Speed'], 
-                   name=f"{driver2} Speed", line=dict(color='blue')), 1, 1)
-    
-    # Throttle/Brake
-    fig.add_trace(go.Scatter(x=tel1['Distance'], y=tel1['Throttle'], 
-                   name=f"{driver1} Throttle", line=dict(color='orange')), 2, 1)
-    fig.add_trace(go.Scatter(x=tel1['Distance'], y=tel1['Brake'], 
-                   name=f"{driver1} Brake", line=dict(color='black')), 2, 1)
-    
-    # Delta time
-    delta = tel1['Time'] - tel2['Time']
-    fig.add_trace(go.Scatter(x=tel1['Distance'], y=delta, 
-                   name="Delta Time", line=dict(color='green')), 3, 1)
-    
-    # Tire age comparison
-    if session_type == "Race":
-        fig.add_trace(go.Scatter(x=tel1['Distance'], y=[lap1['TyreLife']]*len(tel1),
-                               name=f"{driver1} Tire Age", line=dict(color='darkred')), 4, 1)
-        fig.add_trace(go.Scatter(x=tel2['Distance'], y=[lap2['TyreLife']]*len(tel2),
-                               name=f"{driver2} Tire Age", line=dict(color='darkblue')), 4, 1)
-    
-    # Overtaking spots
-    crossings = np.where(np.diff(np.sign(delta)))[0]
-    for x in crossings:
-        fig.add_vline(x=tel1['Distance'].iloc[x], line_dash="dot", 
-                      annotation_text="OVT Zone", row=1, col=1)
-    
-    fig.update_layout(height=1000, showlegend=True)
-    return fig
+    try:
+        # Get laps with tire data
+        lap1 = session.laps.pick_driver(driver1).pick_fastest()
+        lap2 = session.laps.pick_driver(driver2).pick_fastest()
+        
+        # Get telemetry
+        tel1 = lap1.get_telemetry().add_distance()
+        tel2 = lap2.get_telemetry().add_distance()
+        
+        # Create figure
+        fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
+                           subplot_titles=(
+                               f"Speed Comparison | {driver1} ({lap1['Compound']}) vs {driver2} ({lap2['Compound']})",
+                               "Throttle/Brake",
+                               "Delta Time", 
+                               "Tire Age Comparison"))
+        
+        # Speed trace
+        fig.add_trace(go.Scatter(x=tel1['Distance'], y=tel1['Speed'], 
+                       name=f"{driver1} Speed", line=dict(color='red')), 1, 1)
+        fig.add_trace(go.Scatter(x=tel2['Distance'], y=tel2['Speed'], 
+                       name=f"{driver2} Speed", line=dict(color='blue')), 1, 1)
+        
+        # Throttle/Brake
+        fig.add_trace(go.Scatter(x=tel1['Distance'], y=tel1['Throttle'], 
+                       name=f"{driver1} Throttle", line=dict(color='orange')), 2, 1)
+        fig.add_trace(go.Scatter(x=tel1['Distance'], y=tel1['Brake'], 
+                       name=f"{driver1} Brake", line=dict(color='black')), 2, 1)
+        
+        # Delta time
+        delta = tel1['Time'] - tel2['Time']
+        fig.add_trace(go.Scatter(x=tel1['Distance'], y=delta, 
+                       name="Delta Time", line=dict(color='green')), 3, 1)
+        
+        # Tire age comparison
+        if session_type == "Race":
+            fig.add_trace(go.Scatter(x=tel1['Distance'], y=[lap1['TyreLife']]*len(tel1),
+                                   name=f"{driver1} Tire Age", line=dict(color='darkred')), 4, 1)
+            fig.add_trace(go.Scatter(x=tel2['Distance'], y=[lap2['TyreLife']]*len(tel2),
+                                   name=f"{driver2} Tire Age", line=dict(color='darkblue')), 4, 1)
+        
+        # Overtaking spots
+        crossings = np.where(np.diff(np.sign(delta)))[0]
+        for x in crossings:
+            fig.add_vline(x=tel1['Distance'].iloc[x], line_dash="dot", 
+                          annotation_text="OVT Zone", row=1, col=1)
+        
+        fig.update_layout(height=1000, showlegend=True)
+        return fig
+    except Exception as e:
+        st.error(f"Ghost simulator error: {e}")
+        return go.Figure()
 
-# ========== OVERTAKING PREDICTION ==========
-def predict_overtaking_spots(session, driver1, driver2):
-    # Prepare data with tire info
-    laps = session.laps
-    tel1 = laps.pick_driver(driver1).pick_fastest().get_telemetry().add_distance()
-    tel2 = laps.pick_driver(driver2).pick_fastest().get_telemetry().add_distance()
-    
-    # Align telemetry
-    merged = pd.merge_asof(tel1, tel2, on='Distance', 
-                          suffixes=('_1', '_2'))
-    
-    # Features including tire difference
-    merged['TireDelta'] = 0
-    if 'Compound_1' in merged.columns and 'Compound_2' in merged.columns:
-        # Simple tire advantage model (Soft > Medium > Hard)
-        tire_rank = {'SOFT': 3, 'MEDIUM': 2, 'HARD': 1}
-        merged['TireDelta'] = merged['Compound_1'].map(tire_rank) - merged['Compound_2'].map(tire_rank)
-    
-    X = merged[['Speed_1', 'Speed_2', 'Throttle_1', 'Brake_1', 'TireDelta']]
-    y = (merged['Speed_1'] > merged['Speed_2']).astype(int)
-    
-    # Train model
-    model = RandomForestRegressor()
-    X_train, X_test, y_train, y_test = train_test_split(X, y)
-    model.fit(X_train, y_train)
-    
-    # Predict
-    merged['Overtaking_Prob'] = model.predict(X)
-    hotspots = merged[merged['Overtaking_Prob'] > 0.7]['Distance'].unique()
-    
-    return hotspots
+# ========== MAIN DASHBOARD ==========
+st.header("👻 Ghost Race Simulator")
+ghost_fig = ghost_simulator(session, driver1, driver2)
+st.plotly_chart(ghost_fig, use_container_width=True)
 
-# ========== TIRE STRATEGY ANALYSIS ==========
-def tire_analysis(session):
-    st.header("🔄 Tire Strategy Analysis")
-    
+# ========== TIRE ANALYSIS ==========
+st.header("🔄 Tire Strategy Analysis")
+try:
     # Get all laps with tire data
     laps = session.laps
     tire_data = laps[['Driver', 'LapNumber', 'Compound', 'TyreLife', 'LapTime']].dropna()
@@ -138,36 +131,12 @@ def tire_analysis(session):
     st.dataframe(tire_data.groupby(['Driver', 'Compound']).agg(
         {'LapNumber':'count', 'LapTime':'mean'}).rename(
         columns={'LapNumber':'Laps', 'LapTime':'Avg Lap Time'}))
+except Exception as e:
+    st.error(f"Tire analysis error: {e}")
 
-# ========== MAIN DASHBOARD ==========
-st.header("👻 Ghost Race Simulator")
-ghost_fig = ghost_simulator(session, driver1, driver2)
-st.plotly_chart(ghost_fig, use_container_width=True)
-
-st.header("🔥 Predicted Overtaking Spots")
-hotspots = predict_overtaking_spots(session, driver1, driver2)
-st.write(f"**{driver1}** can overtake **{driver2}** at these positions (m): {hotspots}")
-
-# Track map with hotspots
-try:
-    circuit_info = session.get_circuit_info()
-    fig_track = go.Figure()
-    fig_track.add_trace(go.Scatter(x=circuit_info.corners['X'], 
-                                y=circuit_info.corners['Y'],
-                                mode='lines+markers',
-                                name='Track'))
-    for dist in hotspots:
-        corner = circuit_info.corners.iloc[(circuit_info.corners['Distance']-dist).abs().argsort()[0]]
-        fig_track.add_trace(go.Scatter(x=[corner['X']], y=[corner['Y']],
-                            mode='markers', marker=dict(size=15, color='red'),
-                            name=f'Overtaking Zone ({dist}m)'))
-    st.plotly_chart(fig_track)
-except:
-    st.warning("Track map unavailable for this event")
-
-# Tire analysis
-tire_analysis(session)
-
-# Weather data
+# ========== WEATHER DATA ==========
 st.header("🌦️ Session Weather")
-st.write(session.weather_data)
+try:
+    st.write(session.weather_data)
+except Exception as e:
+    st.error(f"Weather data error: {e}")
